@@ -1,8 +1,5 @@
 from __future__ import unicode_literals, print_function, division
 
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 from lang import *
 
 from io import open
@@ -34,7 +31,6 @@ EOS_token = 1
 #bitext.append(AlignedSent(['la', 'casa', 'azul'], ['the', 'blue', 'house']))
 #bitext.append(AlignedSent(['la', 'casa', 'grande'], ['the', 'big', 'house']))
 #bitext.append(AlignedSent(['la', 'casa'], ['the', 'house']))
-#bitext.append(AlignedSent(['la', 'casa', 'es', 'pequeña'], ['the', 'house', 'is', 'small']))
 
 # recycled from other tasks
 def unicodeToAscii(s):
