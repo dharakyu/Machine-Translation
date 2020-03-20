@@ -1,3 +1,8 @@
+# Driver code to train and test English-Spanish translator using monolingual data.
+# Approach inspired by "Towards Neural Machine Translation with Partially Aligned Corpora"
+# link to paper here: https://www.aclweb.org/anthology/I17-1039/
+# neural network architecture adopted from PyTorch seq2seq tutorial
+
 from __future__ import unicode_literals, print_function, division
 
 from lang import *
@@ -22,15 +27,13 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 
+import time
+import math
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SOS_token = 0
 EOS_token = 1
-
-#bitext = []
-#bitext.append(AlignedSent(['la', 'casa', 'es', 'azul'], ['the', 'house', 'is', 'blue']))
-#bitext.append(AlignedSent(['la', 'casa', 'azul'], ['the', 'blue', 'house']))
-#bitext.append(AlignedSent(['la', 'casa', 'grande'], ['the', 'big', 'house']))
-#bitext.append(AlignedSent(['la', 'casa'], ['the', 'house']))
+MIN_PHRASE_LEN = 4
 
 # recycled from other tasks
 def unicodeToAscii(s):
@@ -43,13 +46,10 @@ def unicodeToAscii(s):
 def normalizeString(s):
     s = unicodeToAscii(s.lower().strip())
     s = re.sub(r"[^\w\d'\s]+", r'', s)
-    #s = re.sub(r"([.!?])", r" \1", s)
-    #s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
     return s
 
-
+# read in parallel sentence pairs, to be used for phrase table
 def createPairs(lang1, lang2):
-
     lines_src = open('data/dev.%s' % (lang1), encoding='utf-8').\
         read().strip().split('\n')
 
@@ -61,54 +61,19 @@ def createPairs(lang1, lang2):
 
     return pairs
 
-# filter only to pairs that start with simple phrases
-
-eng_prefixes = (
-    "i am ", "i'm ",
-    "he is", "he's ",
-    "she is", "she's ",
-    "you are", "you're ",
-    "we are", "we're ",
-    "they are", "they're "
-)
-
-
-
-# create pairs and Lang objects
-# filter to only short sentences
-# add pairs to Lang objects
-def prepareParallelData(lang1, lang2, reverse=False):
-    #input_lang, output_lang, pairs = readLangs(lang1, lang2, reverse)
-    pairs = createPairs(lang1, lang2)
-    #print("Read %s sentence pairs" % len(pairs))
-    #pairs = filterPairs(pairs)
-    #print("Trimmed to %s sentence pairs" % len(pairs))
-    #print("Counting words...")
-    #for pair in pairs:
-    #    input_lang.addSentence(pair[0])
-    #    output_lang.addSentence(pair[1])
-    #print("Counted words:")
-    #print(input_lang.name, input_lang.n_words)
-    #print(output_lang.name, output_lang.n_words)
-    #return input_lang, output_lang, pairs
-    return pairs
-
-
-#input_lang, output_lang, pairs = prepareData('eng', 'fra', True)
-#print(random.choice(pairs))
-#print(pairs[0])
-pairs = prepareParallelData('en', 'es')
+pairs = createPairs('en', 'es')
 print(random.choice(pairs))
-#english_lookup_table = set([pairs[i][0] for i in range(len(pairs))])
-#for row in english_lookup_table:
-#    print("lookuptable", row)
 
-bitext = []
-for pair in pairs:
-	src = pair[0].split()
-	trg = pair[1].split()
-	#print(pair)
-	bitext.append(AlignedSent(src, trg))
+# create tokenized bitext to prepare for IBM alignment
+def createBitext(pairs):
+    bitext = []
+    for pair in pairs:
+        src = pair[0].split()
+        trg = pair[1].split()
+        bitext.append(AlignedSent(src, trg))
+    return bitext
+
+bitext = createBitext(pairs)
 
 
 ibm = IBMModel2(bitext, 10)
@@ -116,10 +81,13 @@ test_sentence = random.choice(bitext)
 #print(test_sentence.words)
 #print(test_sentence.mots)
 #print(tuple(test_sentence.alignment))
+
 for i in range(len(bitext)):
 	#print(bitext[i].alignment)
 	newAlignment = []
 	for item in tuple(bitext[i].alignment):
+
+        # only keep word pairings where neither of the words is None
 		if None not in item:
 			newAlignment.append(item)
 	bitext[i].alignment = Alignment(newAlignment)
@@ -132,21 +100,11 @@ for pair in bitext:
 	trgtext = ' '.join(word for word in pair.mots)
 	alignment = tuple(pair.alignment)
 
-	#print(srctext, trgtext)
-	#for word in trg:
-	#	if type(word) == None:
-	#		print(trg)
 	phrases = phrase_extraction(srctext, trgtext, alignment)
 	for phrase in phrases:
 		all_phrases.append(phrase)
 
-#for i in sorted(phrases):
-#	print(i)
-
-#for i in all_phrases:
-#	print(i)
-
-
+# build dict matching english phrases to spanish phrases
 phrase_occ = {}
 for row in all_phrases:
     src = row[2]
@@ -160,6 +118,7 @@ for row in all_phrases:
     else:
         phrase_occ[src][trg] += 1
 
+# calculate probabilites of pairings
 probs = {}
 for src in phrase_occ:
     total_trans = 0
@@ -170,16 +129,26 @@ for src in phrase_occ:
         pair = (src, trg)
         probs[pair] = float(phrase_occ[src][trg]/total_trans)
 
-keep = []
+# keep single words with higher than 0.5 probability
+singletons = []
 for pair in probs:
     if probs[pair] > 0.5 and len(pair[0].split()) == 1 and len(pair[1].split()) == 1:
+        singletons.append(pair)
+
+# only keep the pairings with 0.5 probability and longer than min phrase length
+keep = []
+for pair in probs:
+    if probs[pair] > 0.5 and len(pair[0].split()) >= MIN_PHRASE_LEN and len(pair[1].split()) >= MIN_PHRASE_LEN:
         keep.append(pair)
 
-#print(keep)
+# create fast hashset lookup tables
+single_en_lookup = set([singletons[i][0] for i in range(len(singletons))])
+single_es_lookup = set([singletons[i][1] for i in range(len(singletons))])
+
 en_lookup = set([keep[i][0] for i in range(len(keep))])
 es_lookup = set([keep[i][1] for i in range(len(keep))])
 
-# create pairings and Lang objects
+# create pairings and Lang objects for monolingual corpora
 def readMonoCorpora(lang1, lang2, reverse=False):
     print("Reading lines...")
 
@@ -240,27 +209,52 @@ print("num single words:", count)
 
 pa_pairs = []
 
+# algorithm to match parallel phrases
+# iterate over every eligible phrase, check to see if it is contained in each sentence
+# O(n eligible phrases * n aligned pairs)
+
+# helper function: efficient way to check if phrase is contained in sentence
+def phraseContained(A, B): 
+    i, j = 0, 0 
+    n, m = len(A), len(B)
+
+    while (i < n and j < m): 
+        if (A[i] == B[j]): 
+            i += 1
+            j += 1 
+
+            if (j == m): 
+                return True
+          
+        else: 
+            i = i - j + 1
+            j = 0
+          
+    return False
+
 for word in keep:
     src_idx = None
     trg_idx = None
-    #print("len of ua before", len(ua_pairs))
+
     for i in range(len(ua_pairs)):
-        if word[0] in ua_pairs[i][0]:
+        phrase0 = word[0].split()
+        sentence0 = ua_pairs[i][0].split()
+        if phraseContained(phrase0, sentence0):
             src_idx = i
             break
 
     for i in range(len(ua_pairs)):
-        if word[1] in ua_pairs[i][1]:
+        phrase1 = word[1].split()
+        sentence1 = ua_pairs[i][1].split()
+        if phraseContained(phrase1, sentence1):
             trg_idx = i
             break
 
     if src_idx is not None and trg_idx is not None:
-        #print("src, trg indices", src_idx, trg_idx)
         
         src_match = ua_pairs[src_idx]
         trg_match = ua_pairs[trg_idx]
         pa_pairs.append([src_match[0], trg_match[1]])
-        
 
         if src_idx > trg_idx:
             ua_pairs.append([trg_match[0], src_match[1]])
@@ -278,20 +272,15 @@ for word in keep:
     #print("total_len", len(ua_pairs)+len(pa_pairs))
 
 all_pairs = pa_pairs + ua_pairs
-print("len of all_pairs:", len(all_pairs))
+#print("len of all_pairs:", len(all_pairs))
 #for row in all_pairs[:20]:
 #    print("en", row[0])
 #    print('es', row[1])
 
-print("len of pairs after alignment", len(all_pairs))
+#print("len of pairs after alignment", len(all_pairs))
 
 def indexesFromSentence(lang, sentence):
-    thing = []
-    #print(sentence)
-    for word in sentence.split(' '):
-        thing.append(lang.word2index[word])
-    return thing
-    #return [lang.word2index[word] for word in sentence.split(' ')]
+    return [lang.word2index[word] for word in sentence.split(' ')]
 
 
 def tensorFromSentence(lang, sentence):
@@ -301,14 +290,11 @@ def tensorFromSentence(lang, sentence):
 
 
 def tensorsFromPair(pair):
-    #print("en:", pair[0])
-    #print("es:", pair[1])
     input_tensor = tensorFromSentence(input_lang, pair[0])
     target_tensor = tensorFromSentence(output_lang, pair[1])
     return (input_tensor, target_tensor)
 
 teacher_forcing_ratio = 0.5
-
 
 def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
     encoder_hidden = encoder.initHidden()
@@ -362,16 +348,10 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
 
     return loss.item() / target_length
 
-
-import time
-import math
-
-
 def asMinutes(s):
     m = math.floor(s / 60)
     s -= m * 60
     return '%dm %ds' % (m, s)
-
 
 def timeSince(since, percent):
     now = time.time()
@@ -379,7 +359,6 @@ def timeSince(since, percent):
     es = s / (percent)
     rs = es - s
     return '%s (- %s)' % (asMinutes(s), asMinutes(rs))
-
 
 def trainIters(encoder, decoder, n_iters, print_every=500, plot_every=100, learning_rate=0.01):
     start = time.time()
