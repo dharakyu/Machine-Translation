@@ -1,6 +1,4 @@
 # Machine-Translation
-Repo for OSPMADRD 20: Independent Study in Machine Translation
-
 As my project for the quarter, I sought to replicate the approach described in 
 [Towards Neural Machine Translation with Partially Aligned Corpora](https://www.aclweb.org/anthology/I17-1039.pdf).
 
