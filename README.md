@@ -21,3 +21,8 @@ The folders `en` and `es` contain the entirety of the Europarl dataset in Englis
 files for space reasons.
 
 If you want to create another dataset, use `head -n number_of_lines data/file.txt > sample.txt` in Terminal.
+
+### Next steps:
+
+I would like to perform a few more tests with and without the modified attention mechanism, as I'm not sure that it's working effectively. Also should modify the loss function. Additionally, I might try different preprocessing methods for Spanish words
+(i.e. keep as is vs remove accents vs remove all accented characters).
