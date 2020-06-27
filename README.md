@@ -2,10 +2,10 @@
 As my project for the quarter, I sought to replicate the approach described in 
 [Towards Neural Machine Translation with Partially Aligned Corpora](https://www.aclweb.org/anthology/I17-1039.pdf).
 
-If you'd like to try it on your machine (although I cannot guarantee good results...), 
+If you'd like to try it on your machine, 
 clone on to your machine using `git clone https://github.com/dharakyu/Machine-Translation`. Make sure you have
-the dependencies installed (NLTK and PyTorch should cover everything) and run `python phrase_based_model.py`. I ran it
-as is on the slowest Google Cloud GPU and it took about an hour.
+the dependencies installed (NLTK and PyTorch should cover everything) and run `python phrase_based_model.py`. I recommend 
+running it on a cloud instance.
 
 A bit about how this repo is organized: the `tutorials` folder contains the code from the PyTorch NLP tutorials,
 and the `project` folder contains the source code from my project. Within `project` there is a `data` folder which
